@@ -21,6 +21,7 @@ APP_PROFILES = {
         "topic_list": None,   # no list yet — add assets/CalmSOS-Topic_Master_List.md when ready
         "cta_tagline": "Real-time tools built for the exact moment panic starts — not after.",
         "cta_download": "Download Calm SOS free on the App Store. Link in bio.",
+        "caption_cta": "Panic is physical. Your recovery should be too.  Join the thousands who finally found their 'Off Switch.' Calm SOS is free to download. Link in bio.",
     },
     "migraine_cast": {
         "name": "MigraineCast",
@@ -44,5 +45,6 @@ APP_PROFILES = {
         "topic_list": "assets/MigraineCast-Topic_Master_List.md",
         "cta_tagline": "Science-backed forecasts. Real predictions. Real relief.",
         "cta_download": "Download MigraineCast free on the App Store. Link in bio.",
+        "caption_cta": "Stop guessing. Start predicting.  Take your life back from the weather. Download MigraineCast for free (Link in Bio).",
     },
 }
