@@ -150,6 +150,7 @@ Examples:
   python main.py --app migraine_cast --topic "Barometric Pressure and Migraines" --tiktok
   python main.py --app calm_sos --topic "5-minute panic reset" --insta
   python main.py --app migraine_cast --batch topics.txt --tiktok --provider openai
+  python main.py --app calm_sos --auto --count 14 --tiktok
 """,
     )
 
@@ -158,6 +159,8 @@ Examples:
     parser.add_argument("--batch",    metavar="FILE")
     parser.add_argument("--auto",     action="store_true",
                         help="Auto-pick next unused topic from the app's master list.")
+    parser.add_argument("--count",    type=int, default=1, metavar="N",
+                        help="Number of carousels to generate with --auto (default: 1). Use 14 for a full week.")
     parser.add_argument("--history",  action="store_true",
                         help="Show topic usage history and exit.")
     parser.add_argument("--tiktok",   action="store_true", help="1080×1920 — default")
@@ -191,14 +194,15 @@ Examples:
 
     if args.auto:
         from profiles import APP_PROFILES
-        from topic_manager import pick_topic
+        from topic_manager import pick_topics
         profile    = APP_PROFILES[args.app]
         topic_list = profile.get("topic_list")
         if not topic_list:
             sys.exit(f"No topic list configured for {args.app}. Add 'topic_list' to profiles.py.")
-        topic_number, topic_text = pick_topic(args.app, topic_list)
-        print(f"  Auto-selected topic #{topic_number}: {topic_text!r}")
-        topics.append((topic_text, topic_number))
+        picked = pick_topics(args.app, topic_list, args.count)
+        for num, text in picked:
+            print(f"  Auto-selected topic #{num}: {text!r}")
+        topics.extend((text, num) for num, text in picked)
 
     if args.topic:
         topics.append((args.topic, None))

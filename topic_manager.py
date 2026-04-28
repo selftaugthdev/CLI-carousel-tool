@@ -55,6 +55,27 @@ def pick_topic(app_key: str, topic_list_path: str) -> tuple:
     return chosen, topics[chosen]
 
 
+def pick_topics(app_key: str, topic_list_path: str, count: int) -> list:
+    """Pick `count` unique unused topics in one shot. Returns [(number, text), ...]."""
+    topics  = parse_topic_list(topic_list_path)
+    total   = len(topics)
+    history = _load_history()
+    used    = set(history.get(app_key, []))
+
+    available = [n for n in topics if n not in used]
+
+    if len(available) < count:
+        shortfall = count - len(available)
+        print(f"  Only {len(available)} topics left — resetting history for {app_key} to fill the rest.")
+        history[app_key] = []
+        _save_history(history)
+        extra = random.sample([n for n in topics if n not in available], min(shortfall, total))
+        available = available + extra
+
+    chosen = random.sample(available, min(count, len(available)))
+    return [(n, topics[n]) for n in chosen]
+
+
 def mark_used(app_key: str, topic_number: int, total: int):
     """Append topic number to history after a successful run."""
     history = _load_history()
