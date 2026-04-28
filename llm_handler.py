@@ -31,7 +31,7 @@ STRICT RULES:
 - slide 6 → "cta": ≤20 words, first-person, urgent.
 - "image_prompt": cinematic, moody, high-contrast scene. Style: {background_style}. 8k, minimalist.
 - "caption": 120-150 words, SEO-optimised, ends with 5 relevant hashtags on their own line.
-  Caption rules: (1) First line = hook sentence optimised for TikTok search indexing. (2) Explain the biological or scientific WHY — make the reader feel they just learned something. (3) Link the problem to a specific feature or use case in {app_name}. (4) Always name the app as "{app_name}" — never "the app", "our app", or a community nickname. (5) NEVER use generic therapeutic phrases like "be gentle with yourself", "you are enough", "your mental wellness is paramount", or "always here for you". (6) Separate each paragraph with \\n\\n so the text is NOT one block. Hashtags go on their own paragraph at the end.
+  Caption rules: (1) First line = hook sentence optimised for TikTok search indexing. (2) Explain the biological or scientific WHY — make the reader feel they just learned something. (3) Link the problem to a specific feature or use case in {app_name}. (4) Always name the app as "{app_name}" — never "the app", "our app", or a community nickname. (5) NEVER use generic therapeutic phrases like "be gentle with yourself", "you are enough", "your mental wellness is paramount", or "always here for you". (6) Separate each paragraph with \\n\\n so the text is NOT one block. Hashtags go on their own paragraph at the end. (7) NEVER use em-dashes (—). Use a period or rewrite the sentence instead.
 
 Return ONLY valid JSON — no markdown fences, no explanation.
 
