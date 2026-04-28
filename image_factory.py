@@ -9,7 +9,7 @@ from PIL import Image
 GEMINI_RATIOS = {"tiktok": "9:16", "insta": "4:5"}
 
 # OpenAI supported sizes closest to our targets
-OPENAI_SIZES = {"tiktok": "1024x1792", "insta": "1024x1024"}
+OPENAI_SIZES = {"tiktok": "1024x1536", "insta": "1024x1536"}
 
 
 class ProviderGemini:
@@ -58,16 +58,7 @@ class ProviderOpenAI:
             output_format="png",
         )
         image_bytes = base64.b64decode(response.data[0].b64_json)
-        img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-
-        # Pad 1024x1024 to ~4:5 for Instagram
-        if platform == "insta" and img.size == (1024, 1024):
-            target_h = int(1024 * 5 / 4)
-            padded = Image.new("RGB", (1024, target_h), (0, 0, 0))
-            padded.paste(img, (0, (target_h - 1024) // 2))
-            img = padded
-
-        return img
+        return Image.open(io.BytesIO(image_bytes)).convert("RGB")
 
 
 PROVIDERS = {"gemini": ProviderGemini, "openai": ProviderOpenAI}

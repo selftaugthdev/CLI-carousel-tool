@@ -2,11 +2,10 @@ APP_PROFILES = {
     "calm_sos": {
         "name": "Calm SOS",
         "logo_path": "assets/Calm SOS LOGO.png",
-        "primary_color": "#CE9FFC",
-        "secondary_color": "#B57BFA",
-        "accent_color": "#9B59F7",
-        "text_color": "#FFFFFF",
-        "footer_text_color": "#4B527E",
+        "primary_color": "#CE9FFC",       # Soft lavender — slides 2-4 background
+        "accent_color": "#9B59F7",         # Purple — bars, counters, accents
+        "footer_text_color": "#4B527E",    # Muted dusty indigo — headlines
+        "body_text_color": "#FFF8DC",      # Cream — body copy on brand slides
         "branding_keywords": "Lavender Lounge",
         "tone": "Empathetic",
         "persona_description": (
@@ -15,33 +14,34 @@ APP_PROFILES = {
             "Never clinical — always human and reassuring."
         ),
         "background_style": (
-            "soft lavender gradients, blurred bokeh, gentle morning light, "
-            "serene nature, pastel purple tones, calming wellness aesthetic"
+            "cinematic moody twilight sky, deep lavender and indigo storm clouds, "
+            "ethereal soft light, dramatic atmosphere, ultra high contrast"
         ),
-        "cta_headline": "Calm SOS Gets It.\nYour Phone Should Too.",
+        "tiktok_handle": "@calmsos",
+        "topic_list": None,   # no list yet — add assets/CalmSOS-Topic_Master_List.md when ready
         "cta_tagline": "Real-time tools built for the exact moment panic starts — not after.",
         "cta_download": "Download Calm SOS free on the App Store. Link in bio.",
     },
     "migraine_cast": {
         "name": "MigraineCast",
         "logo_path": "assets/New LOGO MigraineCast.png",
-        "primary_color": "#E0F2F1",
-        "secondary_color": "#B2DFDB",
-        "accent_color": "#26A69A",
-        "text_color": "#FFFFFF",
-        "footer_text_color": "#2D3748",
+        "primary_color": "#FFD6E0",        # Pastel petal pink — slides 2-4 background
+        "accent_color": "#E91E63",          # Hot pink — bars, counters, accents
+        "footer_text_color": "#5D2E46",    # Deep mauve — headlines
+        "body_text_color": "#FFF0F3",      # Blush white — body copy
         "branding_keywords": "Modern Medical",
         "tone": "Clinical/Expert",
         "persona_description": (
             "You are a knowledgeable medical expert who cuts through the noise. "
             "Be precise, evidence-based, and authoritative yet accessible. "
-            "Use clear terminology — build trust through expertise."
+            "Tone: Empathetic, Scientific, Blunt."
         ),
         "background_style": (
-            "clean mint and teal medical aesthetic, subtle geometric patterns, "
-            "modern healthcare, high contrast, professional clinical environment"
+            "cinematic moody storm clouds, deep purple and midnight blue, "
+            "barometric pressure visualization, dramatic atmospheric lighting, minimalist 8k"
         ),
-        "cta_headline": "Finally Know Your\nMigraine Before It Hits.",
+        "tiktok_handle": "@migrainecast",
+        "topic_list": "assets/MigraineCast-Topic_Master_List.md",
         "cta_tagline": "Science-backed forecasts. Real predictions. Real relief.",
         "cta_download": "Download MigraineCast free on the App Store. Link in bio.",
     },

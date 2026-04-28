@@ -1,6 +1,9 @@
-import os
+"""Gemini-powered carousel content generator — one master call, full 6-slide JSON."""
+
 import json
-import anthropic
+import os
+from google import genai
+from google.genai import types as genai_types
 from profiles import APP_PROFILES
 
 _client = None
@@ -9,51 +12,75 @@ _client = None
 def _get_client():
     global _client
     if _client is None:
-        _client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+        _client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
     return _client
 
 
-SYSTEM_TEMPLATE = """\
-You generate social media carousel copy for {app_name}.
+MASTER_PROMPT = """\
+Act as a viral TikTok creator and expert on {topic_domain}.
+Generate a 6-slide carousel JSON for: "{topic}"
 
-TONE: {tone} — {persona_description}
-BRAND: {branding_keywords}
-COLORS: {primary_color} (primary), {footer_text_color} (text on footer)
+App: {app_name}
+Tone: {tone} — {persona_description}
+Brand: {branding_keywords}
 
-Rules:
-- Respond with valid JSON only. No markdown fences, no extra text.
-- Generate exactly {num_slides} slides.
-- Each slide: "headline" (≤40 characters, punchy — strict hard limit, keep it breathable), "body" (≤20 words), "image_prompt" (vivid AI image description matching brand style: {background_style}).
-- Slide order: hook → problem → insight → solution → cta
+STRICT RULES:
+- slide 1 → "neon_word": exactly 1 ALL-CAPS word. "hook": ≤12 words, punchy.
+- slides 2-4 → "header": ≤4 words, ALL CAPS. "body": ≤20 words (slide 4 MUST be 25-30 words for dwell time).
+- slide 5 → "summary_title": ≤3 words ALL CAPS. "checklist": 4-5 short action items.
+- slide 6 → "cta": ≤20 words, first-person, urgent.
+- "image_prompt": cinematic, moody, high-contrast scene. Style: {background_style}. 8k, minimalist.
+- "caption": 120-150 words, SEO-optimised, ends with 5 relevant hashtags.
 
-JSON schema:
+Return ONLY valid JSON — no markdown fences, no explanation.
+
 {{
+  "image_prompt": "...",
   "slides": [
-    {{"slide_number": 1, "type": "hook", "headline": "...", "body": "...", "image_prompt": "..."}}
-  ]
+    {{"neon_word": "WORD", "hook": "..."}},
+    {{"header": "HEADER", "body": "..."}},
+    {{"header": "HEADER", "body": "..."}},
+    {{"header": "HEADER", "body": "25-30 word body here..."}},
+    {{"summary_title": "TITLE", "checklist": ["item 1", "item 2", "item 3", "item 4"]}},
+    {{"cta": "..."}}
+  ],
+  "caption": "..."
 }}
 """
 
+TOPIC_DOMAINS = {
+    "migraine_cast": "migraine science, barometric pressure, and neurology",
+    "calm_sos": "anxiety, panic attacks, and mental wellness",
+}
 
-def generate_copy(app_key: str, topic: str, num_slides: int = 5) -> list:
+
+def generate_carousel(app_key: str, topic: str) -> dict:
     profile = APP_PROFILES[app_key]
-    system = SYSTEM_TEMPLATE.format(
+    prompt = MASTER_PROMPT.format(
+        topic_domain=TOPIC_DOMAINS.get(app_key, "health and wellness"),
+        topic=topic,
         app_name=profile["name"],
         tone=profile["tone"],
         persona_description=profile["persona_description"],
         branding_keywords=profile["branding_keywords"],
-        primary_color=profile["primary_color"],
-        footer_text_color=profile["footer_text_color"],
         background_style=profile["background_style"],
-        num_slides=num_slides,
     )
 
-    msg = _get_client().messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=1024,
-        system=system,
-        messages=[{"role": "user", "content": f"Topic: {topic}"}],
+    response = _get_client().models.generate_content(
+        model="gemini-2.5-flash",
+        contents=prompt,
+        config=genai_types.GenerateContentConfig(
+            response_mime_type="application/json",
+            temperature=0.85,
+        ),
     )
 
-    data = json.loads(msg.content[0].text.strip())
-    return data["slides"]
+    data = json.loads(response.text)
+
+    # Ensure we always have exactly 6 slides
+    slides = data.get("slides", [])
+    while len(slides) < 6:
+        slides.append({})
+    data["slides"] = slides[:6]
+
+    return data

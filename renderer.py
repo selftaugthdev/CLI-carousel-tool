@@ -1,4 +1,4 @@
-"""Pillow rendering engine — one AI background, smart crops per slide."""
+"""Pillow rendering engine — V4 spec, 6-slide structured storytelling."""
 
 import math
 import os
@@ -7,6 +7,29 @@ from PIL import Image, ImageFilter, ImageDraw, ImageFont
 
 PLATFORM_SIZES = {"tiktok": (1080, 1920), "insta": (1080, 1350)}
 
+NEON_GREEN = (57, 255, 20, 255)
+
+# ── Safe zone (reference: 1080×1350) ─────────────────────────────────────────
+# Avoids TikTok/Instagram UI chrome on all sides (buttons on right = 200px)
+SAFE_TOP    = 150
+SAFE_BOTTOM = 350
+SAFE_LEFT   = 150
+SAFE_RIGHT  = 200   # right UI buttons
+
+# ── Per-slide brand colour cycles (slides 2/3/4 each get a distinct palette) ─
+SLIDE_COLOR_CYCLES = {
+    "migraine_cast": [
+        {"bg": "#FFD6E0", "hl": "#1A1A1A", "body": "#5D2E46"},  # Petal Pink  (slide 2)
+        {"bg": "#2D1B5E", "hl": "#FFFFFF",  "body": "#D4B8FF"},  # Deep Purple (slide 3)
+        {"bg": "#2D3748", "hl": "#FFFFFF",  "body": "#E2E8F0"},  # Slate       (slide 4)
+    ],
+    "calm_sos": [
+        {"bg": "#CE9FFC", "hl": "#1A1A1A", "body": "#2D1B5E"},  # Lavender    (slide 2)
+        {"bg": "#2D1B5E", "hl": "#FFFFFF",  "body": "#D4B8FF"},  # Deep Purple (slide 3)
+        {"bg": "#4B527E", "hl": "#FFFFFF",  "body": "#E8EDFF"},  # Indigo Slate (slide 4)
+    ],
+}
+
 FONT_DIRS = [
     os.path.join(os.path.dirname(__file__), "fonts"),
     "/System/Library/Fonts",
@@ -14,9 +37,18 @@ FONT_DIRS = [
     "/usr/share/fonts/truetype/liberation",
 ]
 
-PREFERRED_BOLD = ["Inter-Bold.ttf", "Montserrat-Bold.ttf", "Helvetica.ttc", "DejaVuSans-Bold.ttf", "LiberationSans-Bold.ttf"]
-PREFERRED_REG  = ["Inter-Regular.ttf", "Montserrat-Regular.ttf", "Helvetica.ttc", "DejaVuSans.ttf", "LiberationSans-Regular.ttf"]
+PREFERRED_EXTRABOLD = ["Montserrat-ExtraBold.ttf", "Inter-ExtraBold.ttf",
+                        "Montserrat-Bold.ttf", "Inter-Bold.ttf",
+                        "Helvetica.ttc", "DejaVuSans-Bold.ttf"]
+PREFERRED_BOLD      = ["Montserrat-Bold.ttf", "Inter-Bold.ttf",
+                        "Helvetica.ttc", "DejaVuSans-Bold.ttf"]
+PREFERRED_REG       = ["Montserrat-Regular.ttf", "Inter-Regular.ttf",
+                        "Helvetica.ttc", "DejaVuSans.ttf"]
 
+
+# ──────────────────────────────────────────────
+#  HELPERS
+# ──────────────────────────────────────────────
 
 def _find_font(names, size: int) -> ImageFont.FreeTypeFont:
     for name in names:
@@ -35,33 +67,7 @@ def _hex_rgb(hex_color: str) -> tuple:
     return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
 
 
-def _round_image(img: Image.Image) -> Image.Image:
-    """Crop to square, then apply a circular alpha mask."""
-    s = min(img.size)
-    img = img.crop(((img.width - s) // 2, (img.height - s) // 2,
-                    (img.width + s) // 2, (img.height + s) // 2)).convert("RGBA")
-    mask = Image.new("L", (s, s), 0)
-    ImageDraw.Draw(mask).ellipse([0, 0, s - 1, s - 1], fill=255)
-    img.putalpha(mask)
-    return img
-
-
-def _draw_stars(draw: ImageDraw.ImageDraw, cx: int, cy: int, star_r: int, n: int, gap: int, color: tuple):
-    """Draw n filled 5-pointed stars in a horizontal row centred on cx, cy."""
-    total_w = n * star_r * 2 + (n - 1) * gap
-    x0 = cx - total_w // 2 + star_r
-    for i in range(n):
-        sx = x0 + i * (star_r * 2 + gap)
-        outer, inner = star_r, int(star_r * 0.42)
-        pts = []
-        for j in range(10):
-            angle = math.pi / 5 * j - math.pi / 2
-            r = outer if j % 2 == 0 else inner
-            pts.append((sx + r * math.cos(angle), cy + r * math.sin(angle)))
-        draw.polygon(pts, fill=color)
-
-
-def _wrap(draw: ImageDraw.ImageDraw, text: str, font, max_px: int) -> str:
+def _wrap(draw, text: str, font, max_px: int) -> str:
     words, lines, current = text.split(), [], []
     for word in words:
         test = " ".join(current + [word])
@@ -75,33 +81,54 @@ def _wrap(draw: ImageDraw.ImageDraw, text: str, font, max_px: int) -> str:
     return "\n".join(lines)
 
 
-def _draw_centered_lines(draw, text: str, font, y: int, w: int, fill: tuple, line_gap: int = 6) -> int:
-    """Draw multi-line centred text, returns y after last line."""
+def _safe_zone(w, h):
+    """Return (top, bottom_y, left_x, right_x) scaled from 1350 reference."""
+    s    = h / 1350
+    top  = int(SAFE_TOP    * s)
+    bot  = h - int(SAFE_BOTTOM * s)
+    left = SAFE_LEFT                  # width is always 1080
+    right = w - SAFE_RIGHT
+    return top, bot, left, right
+
+
+def _text_cx(left, right):
+    """Horizontal centre of the safe zone."""
+    return (left + right) // 2
+
+
+def _draw_centered(draw, text: str, font, y: int, cx: int, fill: tuple,
+                   line_gap: int = 8) -> int:
     for line in text.split("\n"):
         lb = draw.textbbox((0, 0), line, font=font)
-        lw = lb[2] - lb[0]
-        lh = lb[3] - lb[1]
-        draw.text(((w - lw) // 2, y), line, font=font, fill=fill)
+        lw, lh = lb[2]-lb[0], lb[3]-lb[1]
+        draw.text((cx - lw // 2, y), line, font=font, fill=fill)
         y += lh + line_gap
     return y
 
 
-def _make_slide_bg(base: Image.Image, slide_idx: int, target_w: int, target_h: int) -> Image.Image:
-    """Deterministic crop + transform + blur of base image per slide index."""
-    rng = random.Random(slide_idx)
-    zoom = rng.uniform(0.80, 0.92)
-    crop_w = int(base.width * zoom)
-    crop_h = int(base.height * zoom)
-    x = int(rng.uniform(0, max(0, base.width - crop_w)))
-    y = int(rng.uniform(0, max(0, base.height - crop_h)))
-    frame = base.crop((x, y, x + crop_w, y + crop_h))
-    if rng.random() > 0.5:
-        frame = frame.transpose(Image.FLIP_LEFT_RIGHT)
-    angle = rng.uniform(-4, 4)
-    if abs(angle) > 0.5:
-        frame = frame.rotate(angle, resample=Image.BICUBIC, expand=False)
-    frame = frame.resize((target_w, target_h), Image.LANCZOS)
-    return frame.filter(ImageFilter.GaussianBlur(radius=rng.uniform(10, 20)))
+def _fit_neon_font(draw, text: str, max_width: int, initial_size: int):
+    """Auto-scale neon word font so it always fits the safe zone width."""
+    size = initial_size
+    if len(text) > 7:
+        size = int(size * 0.75)
+    font = _find_font(PREFERRED_EXTRABOLD, size)
+    while True:
+        w = draw.textbbox((0, 0), text, font=font)[2]
+        if w <= max_width or size <= 40:
+            break
+        size = int(size * (max_width / w) * 0.97)   # 3% margin
+        font = _find_font(PREFERRED_EXTRABOLD, size)
+    return font
+
+
+def _round_image(img: Image.Image) -> Image.Image:
+    s = min(img.size)
+    img = img.crop(((img.width-s)//2, (img.height-s)//2,
+                    (img.width+s)//2, (img.height+s)//2)).convert("RGBA")
+    mask = Image.new("L", (s, s), 0)
+    ImageDraw.Draw(mask).ellipse([0, 0, s-1, s-1], fill=255)
+    img.putalpha(mask)
+    return img
 
 
 def _load_logo(path: str, size: int, fallback_color: tuple) -> Image.Image:
@@ -112,193 +139,417 @@ def _load_logo(path: str, size: int, fallback_color: tuple) -> Image.Image:
             return _round_image(img)
         except Exception:
             pass
-    # Placeholder circle
     img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
-    d.ellipse([0, 0, size - 1, size - 1], fill=(*fallback_color, 220))
-    font = _find_font(PREFERRED_BOLD, max(10, size // 3))
-    d.text((size // 2, size // 2), "A", font=font, fill=(255, 255, 255, 255), anchor="mm")
+    d   = ImageDraw.Draw(img)
+    d.ellipse([0, 0, size-1, size-1], fill=(*fallback_color, 220))
+    d.text((size//2, size//2), "A", font=_find_font(PREFERRED_BOLD, max(10, size//3)),
+           fill=(255, 255, 255, 255), anchor="mm")
     return img
 
 
+def _draw_stars(draw, cx, cy, star_r, n, gap, color):
+    total_w = n * star_r * 2 + (n - 1) * gap
+    x0 = cx - total_w // 2 + star_r
+    for i in range(n):
+        sx = x0 + i * (star_r * 2 + gap)
+        pts = []
+        for j in range(10):
+            angle = math.pi / 5 * j - math.pi / 2
+            r = star_r if j % 2 == 0 else int(star_r * 0.42)
+            pts.append((sx + r * math.cos(angle), cy + r * math.sin(angle)))
+        draw.polygon(pts, fill=color)
+
+
+def _draw_checkmark(draw, x, y, size, color):
+    lw = max(2, size // 7)
+    draw.rounded_rectangle([x, y, x+size, y+size], radius=size//5, outline=color, width=lw)
+    m  = size // 6
+    p1 = (x + m,            y + size // 2)
+    p2 = (x + int(size*.42), y + size - m - 1)
+    p3 = (x + size - m,     y + m + 2)
+    draw.line([p1, p2], fill=color, width=lw)
+    draw.line([p2, p3], fill=color, width=lw)
+
+
+def _top_bar(canvas, profile, slide_idx, total_slides, h):
+    """Logo top-left, counter top-right. Returns draw handle."""
+    w     = canvas.width
+    scale = h / 1350
+    pad   = int(40 * scale)
+    lsize = int(68 * scale)
+    accent = _hex_rgb(profile["accent_color"])
+
+    logo = _load_logo(profile["logo_path"], lsize, accent)
+    canvas.paste(logo, (pad, pad), logo)
+
+    draw = ImageDraw.Draw(canvas)
+    cfont = _find_font(PREFERRED_REG, max(14, int(26 * scale)))
+    ctxt  = f"{slide_idx + 1} / {total_slides}"
+    cb    = draw.textbbox((0, 0), ctxt, font=cfont)
+    draw.text((w - pad - (cb[2]-cb[0]), pad + (lsize-(cb[3]-cb[1]))//2),
+              ctxt, font=cfont, fill=(*accent, 220))
+    return draw
+
+
+def _bottom_bar(draw, w, h, accent_rgb):
+    bh = max(6, int(8 * h / 1350))
+    draw.rectangle([0, h-bh, w, h], fill=(*accent_rgb, 255))
+
+
+def _find_screenshot(app_key: str):
+    folder = os.path.join("assets", "screenshots", app_key)
+    if os.path.exists(folder):
+        for fname in sorted(os.listdir(folder)):
+            if fname.lower().endswith((".png", ".jpg", ".jpeg")):
+                return os.path.join(folder, fname)
+    return None
+
+
+def _make_paper_bg(w: int, h: int) -> Image.Image:
+    rng   = random.Random(42)
+    base  = (242, 237, 224)
+    tw, th = 160, 160
+    pixels = []
+    for _ in range(tw * th):
+        n = rng.randint(-20, 20)
+        pixels.append((max(0,min(255,base[0]+n)), max(0,min(255,base[1]+n)),
+                       max(0,min(255,base[2]+n))))
+    tile   = Image.new("RGB", (tw, th)); tile.putdata(pixels)
+    result = Image.new("RGB", (w, h))
+    for y in range(0, h, th):
+        for x in range(0, w, tw):
+            result.paste(tile, (x, y))
+    return result
+
+
 # ──────────────────────────────────────────────
-#  REGULAR SLIDE
+#  SLIDE 1: HOOK
 # ──────────────────────────────────────────────
 
-def render_slide(base_image, copy, profile, platform, slide_index, total_slides):
+def render_hook_slide(bg_image, slide_data, profile, platform, slide_idx, total_slides):
     w, h = PLATFORM_SIZES[platform]
-    scale = h / 1920
+    safe_top, safe_bot, safe_left, safe_right = _safe_zone(w, h)
+    cx       = _text_cx(safe_left, safe_right)
+    max_text = safe_right - safe_left
+    scale    = h / 1350
 
-    canvas = _make_slide_bg(base_image, slide_index, w, h).convert("RGBA")
+    # 1. Resize + 2px blur
+    canvas = bg_image.resize((w, h), Image.LANCZOS).convert("RGBA")
+    canvas = canvas.filter(ImageFilter.GaussianBlur(radius=2))
 
-    # Glassmorphism footer — bottom 20%, strong white panel
-    footer_h = int(h * 0.20)
-    footer_y = h - footer_h
-    margin = int(60 * scale)
+    # 2. 60% black overlay (153/255 ≈ 60%)
+    canvas = Image.alpha_composite(canvas, Image.new("RGBA", (w, h), (0, 0, 0, 153)))
 
-    glass = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    glass_draw = ImageDraw.Draw(glass)
-    fade_px = 80
-    for i in range(fade_px):
-        alpha = int(220 * (i / fade_px))
-        glass_draw.line([(0, footer_y - fade_px + i), (w, footer_y - fade_px + i)], fill=(255, 255, 255, alpha))
-    glass_draw.rectangle([0, footer_y, w, h], fill=(255, 255, 255, 220))
-    canvas = Image.alpha_composite(canvas, glass)
+    neon_word = slide_data.get("neon_word", "NOW")
+    hook_text = slide_data.get("hook", "")
+
     draw = ImageDraw.Draw(canvas)
 
-    headline_pt = max(42, int(90 * scale))
-    body_pt     = max(20, int(45 * scale))
-    headline_font = _find_font(PREFERRED_BOLD, headline_pt)
-    body_font     = _find_font(PREFERRED_REG, body_pt)
+    # 3. Neon word — auto-scaled to fit safe zone width
+    neon_pt   = max(80, int(210 * scale))
+    neon_font = _fit_neon_font(draw, neon_word, max_text, neon_pt)
+    nb        = draw.textbbox((0, 0), neon_word, font=neon_font)
+    nw, nh    = nb[2]-nb[0], nb[3]-nb[1]
 
-    footer_rgb = _hex_rgb(profile["footer_text_color"])
-    max_text_w = w - 2 * margin
-    pad = int(18 * scale)
+    hook_pt   = max(24, int(50 * scale))
+    hook_font = _find_font(PREFERRED_REG, hook_pt)
+    hook_wrap = _wrap(draw, hook_text, hook_font, max_text)
+    hb        = draw.multiline_textbbox((0, 0), hook_wrap, font=hook_font)
+    hh        = hb[3]-hb[1]
 
-    headline_text = _wrap(draw, copy.get("headline", ""), headline_font, max_text_w)
-    body_text     = _wrap(draw, copy.get("body", ""), body_font, max_text_w)
+    gap      = int(28 * scale)
+    content_h = nh + gap + hh
+    start_y  = safe_top + ((safe_bot - safe_top) - content_h) // 2
+    neon_x   = cx - nw // 2
+    neon_y   = start_y
 
-    hl_y = footer_y + pad
-    shadow_off = max(2, int(3 * scale))
-    draw.text((margin + shadow_off, hl_y + shadow_off), headline_text, font=headline_font, fill=(0, 0, 0, 40))
-    draw.text((margin, hl_y), headline_text, font=headline_font, fill=(*footer_rgb, 255))
+    # 4. Neon glow layer
+    glow = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    gd   = ImageDraw.Draw(glow)
+    for dx, dy in [(-4,0),(4,0),(0,-4),(0,4),(-3,-3),(3,-3),(-3,3),(3,3),(0,0)]:
+        gd.text((neon_x+dx, neon_y+dy), neon_word, font=neon_font, fill=(57,255,20,65))
+    glow   = glow.filter(ImageFilter.GaussianBlur(radius=5))
+    canvas = Image.alpha_composite(canvas, glow)
+    draw   = ImageDraw.Draw(canvas)
 
-    hl_bbox = draw.multiline_textbbox((margin, hl_y), headline_text, font=headline_font)
-    draw.text((margin, hl_bbox[3] + pad), body_text, font=body_font, fill=(*footer_rgb, 210))
+    # 5. Neon word + hook
+    draw.text((neon_x, neon_y), neon_word, font=neon_font, fill=NEON_GREEN)
+    _draw_centered(draw, hook_wrap, hook_font, neon_y + nh + gap, cx,
+                   (255,255,255,215), line_gap=int(8*scale))
 
-    # Logo — top left
-    logo_size = int(80 * scale)
-    logo_pad  = int(40 * scale)
-    logo = _load_logo(profile["logo_path"], logo_size, _hex_rgb(profile["accent_color"]))
-    canvas.paste(logo, (logo_pad, logo_pad), logo)
-
-    # Slide counter — top centre
-    counter_font = _find_font(PREFERRED_REG, max(14, int(26 * scale)))
-    counter = f"{slide_index + 1} / {total_slides}"
-    cb = draw.textbbox((0, 0), counter, font=counter_font)
-    draw.text(((w - cb[2]) // 2, logo_pad), counter, font=counter_font, fill=(255, 255, 255, 180))
-
+    draw = _top_bar(canvas, profile, slide_idx, total_slides, h)
     return canvas.convert("RGB")
 
 
 # ──────────────────────────────────────────────
-#  CTA SLIDE  (last slide — reuses AI background)
+#  SLIDES 2-4: BRAND  (colour-cycled)
 # ──────────────────────────────────────────────
 
-def render_cta_slide(base_image, profile, platform, slide_number, total_slides, review=None):
+def render_brand_slide(slide_data, profile, platform, slide_idx, total_slides,
+                        bridge=False, bridge_side=None):
+    """
+    bridge_side: None | "exit" (slide 3 — line exits right) | "entry" (slide 4 — line enters left)
+    """
     w, h = PLATFORM_SIZES[platform]
-    scale = h / 1920
-    margin = int(60 * scale)
+    safe_top, safe_bot, safe_left, safe_right = _safe_zone(w, h)
+    cx       = _text_cx(safe_left, safe_right)
+    max_text = safe_right - safe_left
+    scale    = h / 1350
 
-    # 1. Same smart-crop background (unique index = total_slides ensures a fresh crop)
-    canvas = _make_slide_bg(base_image, total_slides, w, h).convert("RGBA")
+    # Colour cycle: slide_idx 1→0, 2→1, 3→2
+    app_key    = next(k for k,v in __import__("profiles").APP_PROFILES.items()
+                      if v["name"] == profile["name"])
+    color_idx  = max(0, slide_idx - 1)
+    cycle      = SLIDE_COLOR_CYCLES.get(app_key, SLIDE_COLOR_CYCLES["migraine_cast"])
+    colors     = cycle[color_idx % len(cycle)]
 
-    # 2. Cinematic dark gradient so white text is readable throughout
-    grad = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    grad_draw = ImageDraw.Draw(grad)
-    for i in range(h):
-        alpha = int(200 * (i / h) ** 1.2)
-        grad_draw.line([(0, i), (w, i)], fill=(0, 0, 0, alpha))
-    canvas = Image.alpha_composite(canvas, grad)
+    bg_rgb  = _hex_rgb(colors["bg"])
+    hl_rgb  = _hex_rgb(colors["hl"])
+    body_rgb = _hex_rgb(colors["body"])
+    accent_rgb = _hex_rgb(profile["accent_color"])
+
+    canvas = Image.new("RGBA", (w, h), (*bg_rgb, 255))
+    draw   = ImageDraw.Draw(canvas)
+
+    header = slide_data.get("header", "")
+    body   = slide_data.get("body", "")
+
+    header_pt   = max(40, int(84 * scale))
+    body_pt     = max(20, int(44 * scale))
+    header_font = _find_font(PREFERRED_BOLD, header_pt)
+    body_font   = _find_font(PREFERRED_REG,  body_pt)
+
+    header_wrap = _wrap(draw, header, header_font, max_text)
+    body_wrap   = _wrap(draw, body,   body_font,   max_text)
+    hb = draw.multiline_textbbox((0,0), header_wrap, font=header_font)
+    bb = draw.multiline_textbbox((0,0), body_wrap,   font=body_font)
+
+    sep_h   = max(3, int(4 * scale))
+    sep_gap = int(24 * scale)
+    content_h = (hb[3]-hb[1]) + sep_gap + sep_h + sep_gap + (bb[3]-bb[1])
+
+    # "Clear Lane" rule for slide 4 — keep text above bridge line (y=675 scaled)
+    bridge_y = int(675 * h / 1350)
+    if bridge_side == "entry":
+        # Top-heavy: start early, end before bridge line
+        start_y = int(250 * h / 1350)
+    else:
+        start_y = safe_top + ((safe_bot - safe_top) - content_h) // 2
+
+    # Header
+    _draw_centered(draw, header_wrap, header_font, start_y, cx,
+                   (*hl_rgb, 255), line_gap=int(8*scale))
+
+    sep_y = start_y + (hb[3]-hb[1]) + sep_gap
+    sep_w = int(90 * scale)
+    draw.rectangle([(cx-sep_w//2, sep_y), (cx+sep_w//2, sep_y+sep_h)],
+                   fill=(*accent_rgb, 255))
+
+    _draw_centered(draw, body_wrap, body_font, sep_y + sep_h + sep_gap, cx,
+                   (*body_rgb, 225), line_gap=int(8*scale))
+
+    # Bridge line (neon, thick)
+    if bridge:
+        line_w = max(4, int(6 * scale))
+        if bridge_side == "exit":
+            # Exits off the RIGHT edge — visible from x=1000 to x=w
+            x0 = int(1000 * w / 1080)
+            draw.line([(x0, bridge_y), (w, bridge_y)], fill=NEON_GREEN, width=line_w)
+        elif bridge_side == "entry":
+            # Enters from the LEFT edge — visible from x=0 to x=80
+            x1 = int(80 * w / 1080)
+            draw.line([(0, bridge_y), (x1, bridge_y)], fill=NEON_GREEN, width=line_w)
+
+    draw = _top_bar(canvas, profile, slide_idx, total_slides, h)
+    _bottom_bar(draw, w, h, accent_rgb)
+    return canvas.convert("RGB")
+
+
+# ──────────────────────────────────────────────
+#  SLIDE 5: THE PROTOCOL  (paper texture checklist)
+# ──────────────────────────────────────────────
+
+def render_checklist_slide(slide_data, profile, platform, slide_idx, total_slides):
+    w, h = PLATFORM_SIZES[platform]
+    safe_top, safe_bot, safe_left, safe_right = _safe_zone(w, h)
+    cx       = _text_cx(safe_left, safe_right)
+    max_text = safe_right - safe_left
+    scale    = h / 1350
+
+    paper_path = "assets/paper_texture.png"
+    if os.path.exists(paper_path):
+        try:
+            canvas = Image.open(paper_path).convert("RGBA").resize((w, h), Image.LANCZOS)
+        except Exception:
+            canvas = _make_paper_bg(w, h).convert("RGBA")
+    else:
+        canvas = _make_paper_bg(w, h).convert("RGBA")
+
+    draw       = ImageDraw.Draw(canvas)
+    accent_rgb = _hex_rgb(profile["accent_color"])
+    dark_text  = (26, 26, 26, 255)   # #1A1A1A — high-contrast on paper
+
+    # Always "THE PROTOCOL" — the save magnet
+    title = "THE PROTOCOL"
+    items = slide_data.get("checklist", [])
+
+    # Auto-scale title to fit safe zone width (730px) — prevents bleed
+    title_pt   = max(48, int(100 * scale))
+    title_font = _fit_neon_font(draw, title, max_text, title_pt)
+    item_pt    = max(20, int(44 * scale))
+    item_font  = _find_font(PREFERRED_REG, item_pt)
+
+    tb      = draw.textbbox((0, 0), title, font=title_font)
+    title_h = tb[3]-tb[1]
+    title_w = min(tb[2]-tb[0], max_text)   # cap displayed width to safe zone
+
+    check_size  = max(26, int(46 * scale))
+    item_text_w = max_text - check_size - int(20*scale)   # wrap width for item text
+    row_gap     = int(20 * scale)
+
+    # Pre-measure wrapped item heights (items may be multi-line)
+    wrapped_items = []
+    for item_text in items:
+        wrapped = _wrap(draw, item_text, item_font, item_text_w)
+        ib = draw.multiline_textbbox((0, 0), wrapped, font=item_font)
+        row_h = max(check_size, ib[3]-ib[1]) + int(8*scale)
+        wrapped_items.append((wrapped, row_h))
+
+    items_h = sum(r for _, r in wrapped_items) + row_gap * max(0, len(wrapped_items)-1)
+
+    gap       = int(40 * scale)
+    # Title starts at y=200 (scaled) to clear TikTok top UI chrome
+    start_y   = int(200 * h / 1350)
+
+    # Title in accent colour, centred within safe zone
+    draw.text((cx - title_w//2, start_y), title, font=title_font, fill=(*accent_rgb, 255))
+
+    # Neon underline (same width as title)
+    ul_y = start_y + title_h + int(6*scale)
+    draw.line([(cx - title_w//2, ul_y), (cx + title_w//2, ul_y)],
+              fill=NEON_GREEN, width=max(3, int(4*scale)))
+
+    # Checklist — left-aligned inside safe zone, items wrapped to 730px
+    item_x = safe_left
+    item_y = ul_y + int(10*scale) + gap
+
+    for wrapped, row_h in wrapped_items:
+        cy = item_y + (check_size // 2) - check_size // 2
+        _draw_checkmark(draw, item_x, cy, check_size, (*accent_rgb, 255))
+        tx = item_x + check_size + int(20*scale)
+        draw.multiline_text((tx, item_y), wrapped, font=item_font, fill=dark_text,
+                            spacing=int(6*scale))
+        item_y += row_h + row_gap
+
+    draw = _top_bar(canvas, profile, slide_idx, total_slides, h)
+    _bottom_bar(draw, w, h, accent_rgb)
+    return canvas.convert("RGB")
+
+
+# ──────────────────────────────────────────────
+#  SLIDE 6: CTA  (phone mockup — humanises the app)
+# ──────────────────────────────────────────────
+
+def render_cta_slide(slide_data, profile, platform, slide_idx, total_slides,
+                      app_key, review=None):
+    w, h = PLATFORM_SIZES[platform]
+    safe_top, safe_bot, safe_left, safe_right = _safe_zone(w, h)
+    cx       = _text_cx(safe_left, safe_right)
+    max_text = safe_right - safe_left
+    scale    = h / 1350
+
+    accent_rgb   = _hex_rgb(profile["accent_color"])
+    headline_rgb = _hex_rgb(profile["footer_text_color"])
+    bg_rgb       = _hex_rgb(profile["primary_color"])
+
+    # Background: real hand-holding-phone screenshot humanises the app
+    screenshot = _find_screenshot(app_key)
+    on_dark    = False
+    if screenshot:
+        try:
+            bg      = Image.open(screenshot).convert("RGBA").resize((w, h), Image.LANCZOS)
+            overlay = Image.new("RGBA", (w, h), (0, 0, 0, 165))
+            canvas  = Image.alpha_composite(bg, overlay)
+            on_dark = True
+        except Exception:
+            canvas = Image.new("RGBA", (w, h), (*bg_rgb, 255))
+    else:
+        canvas = Image.new("RGBA", (w, h), (*bg_rgb, 255))
+
     draw = ImageDraw.Draw(canvas)
 
-    white       = (255, 255, 255, 255)
-    white_dim   = (255, 255, 255, 190)
-    white_muted = (255, 255, 255, 140)
-    accent      = (*_hex_rgb(profile["accent_color"]), 255)
+    text_main  = (255, 255, 255, 255) if on_dark else (*headline_rgb, 255)
+    text_dim   = (255, 255, 255, 190) if on_dark else (*headline_rgb, 200)
 
-    # 3. Top bar: app name (left) + counter (right)
-    label_font = _find_font(PREFERRED_REG, max(18, int(32 * scale)))
-    draw.text((margin, margin), profile["name"], font=label_font, fill=white_dim)
-    counter_text = f"{slide_number} / {total_slides}"
-    cb = draw.textbbox((0, 0), counter_text, font=label_font)
-    draw.text((w - margin - (cb[2] - cb[0]), margin), counter_text, font=label_font, fill=accent)
+    y = safe_top
 
-    y = int(160 * scale)
-
-    # 4. Logo — centred, large
-    logo_size = int(200 * scale)
-    logo = _load_logo(profile["logo_path"], logo_size, _hex_rgb(profile["accent_color"]))
-    lx = (w - logo.width) // 2
-    canvas.paste(logo, (lx, y), logo)
+    # Logo — centred, large
+    logo_size = int(170 * scale)
+    logo      = _load_logo(profile["logo_path"], logo_size, accent_rgb)
+    canvas.paste(logo, ((w - logo.width)//2, y), logo)
     draw = ImageDraw.Draw(canvas)
-    y += logo.height + int(24 * scale)
+    y   += logo.height + int(24 * scale)
 
-    # 5. Accent underline
-    line_w_px = int(70 * scale)
-    line_h_px = max(4, int(5 * scale))
-    draw.rectangle([(w - line_w_px) // 2, y, (w + line_w_px) // 2, y + line_h_px], fill=accent)
-    y += line_h_px + int(36 * scale)
+    # Accent underline
+    ul_w = int(60 * scale)
+    ul_h = max(3, int(5 * scale))
+    draw.rectangle([(cx-ul_w//2, y), (cx+ul_w//2, y+ul_h)], fill=(*accent_rgb, 255))
+    y += ul_h + int(32*scale)
 
-    # 6. Headline — bold, white, centred
-    hl_pt = max(44, int(96 * scale))
-    hl_font = _find_font(PREFERRED_BOLD, hl_pt)
-    hl_text = profile.get("cta_headline", profile["name"]).upper()
-    hl_wrapped = _wrap(draw, hl_text, hl_font, w - 2 * margin)
-    y = _draw_centered_lines(draw, hl_wrapped, hl_font, y, w, white, line_gap=int(10 * scale))
-    y += int(36 * scale)
+    # Social proof CTA — smaller font to prevent multi-line overflow
+    cta_text = slide_data.get("cta", "100% of trial users stay. Find out why.")
+    cta_pt   = max(28, int(52 * scale))
+    cta_font = _find_font(PREFERRED_BOLD, cta_pt)
+    cta_wrap = _wrap(draw, cta_text, cta_font, max_text)
+    y        = _draw_centered(draw, cta_wrap, cta_font, y, cx, text_main,
+                               line_gap=int(10*scale))
+    y       += int(28*scale)
 
-    # 7. Review card
+    # Review card
     if review:
-        quote_pt = max(16, int(34 * scale))
-        attr_pt  = max(13, int(26 * scale))
-        quote_font = _find_font(PREFERRED_REG, quote_pt)
-        attr_font  = _find_font(PREFERRED_REG, attr_pt)
+        qfont = _find_font(PREFERRED_REG, max(14, int(30*scale)))
+        afont = _find_font(PREFERRED_REG, max(12, int(22*scale)))
+        inner = max_text - int(40*scale)
 
-        inner_w = w - 2 * margin - int(64 * scale)
-        quote_text = f'"{review["text"]}"'
-        attr_text  = f'— {review["reviewer"]}, {review["source"]}'
-        quote_wrapped = _wrap(draw, quote_text, quote_font, inner_w)
+        qwrap  = _wrap(draw, f'"{review["text"]}"', qfont, inner)
+        atxt   = f'— {review["reviewer"]}, {review["source"]}'
+        star_r = max(10, int(16*scale))
+        pad_v  = int(18*scale)
+        qb = draw.multiline_textbbox((0,0), qwrap, font=qfont)
+        ab = draw.textbbox((0,0), atxt, font=afont)
+        card_h = pad_v + star_r*2 + pad_v//2 + (qb[3]-qb[1]) + pad_v//2 + (ab[3]-ab[1]) + pad_v
 
-        star_r = max(12, int(22 * scale))   # radius of each star
-        star_row_h = star_r * 2
-
-        pad_v = int(24 * scale)
-        qb = draw.multiline_textbbox((0, 0), quote_wrapped, font=quote_font)
-        ab = draw.textbbox((0, 0), attr_text, font=attr_font)
-        card_h = pad_v + star_row_h + pad_v//2 + (qb[3]-qb[1]) + pad_v//2 + (ab[3]-ab[1]) + pad_v
-
-        card_x = margin
-        card_layer = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-        card_draw = ImageDraw.Draw(card_layer)
-        card_draw.rounded_rectangle(
-            [card_x, y, card_x + (w - 2 * margin), y + card_h],
-            radius=int(18 * scale),
-            fill=(255, 255, 255, 28),
-        )
-        canvas = Image.alpha_composite(canvas, card_layer)
-        draw = ImageDraw.Draw(canvas)
+        cl = Image.new("RGBA", (w, h), (0,0,0,0))
+        ImageDraw.Draw(cl).rounded_rectangle([safe_left, y, safe_right, y+card_h],
+                                              radius=int(14*scale), fill=(255,255,255,28))
+        canvas = Image.alpha_composite(canvas, cl)
+        draw   = ImageDraw.Draw(canvas)
 
         cy = y + pad_v
+        _draw_stars(draw, cx, cy+star_r, star_r, 5, max(5, int(9*scale)),
+                    (*accent_rgb, 255))
+        cy += star_r*2 + pad_v//2
+        cy  = _draw_centered(draw, qwrap, qfont, cy, cx, text_dim, line_gap=int(4*scale))
+        cy += pad_v//2
+        aw  = ab[2]-ab[0]
+        draw.text((cx-aw//2, cy), atxt, font=afont,
+                  fill=(255,255,255,130) if on_dark else (*headline_rgb,130))
+        y += card_h + int(24*scale)
 
-        # Geometrically drawn stars — no font glyph needed
-        gap = max(6, int(10 * scale))
-        _draw_stars(draw, w // 2, cy + star_r, star_r, 5, gap, accent)
-        cy += star_row_h + pad_v // 2
+    # Bottom row: "Link in bio." left  |  @handle right
+    # Pinned just above the accent bar at the true bottom of the canvas
+    bar_h      = max(6, int(8 * scale))
+    bot_font   = _find_font(PREFERRED_BOLD, max(16, int(30*scale)))
+    lib_txt    = "Link in bio."
+    handle_txt = profile.get("tiktok_handle", "")
+    lb  = draw.textbbox((0, 0), lib_txt,    font=bot_font)
+    hb  = draw.textbbox((0, 0), handle_txt, font=bot_font)
+    bot_h = lb[3] - lb[1]
+    bot_y = h - bar_h - bot_h - int(24*scale)    # flush to canvas bottom, above accent bar
+    draw.text((safe_left,                    bot_y), lib_txt,    font=bot_font, fill=NEON_GREEN)
+    draw.text((safe_right - (hb[2]-hb[0]),   bot_y), handle_txt, font=bot_font,
+              fill=(255,255,255,200) if on_dark else (*accent_rgb, 220))
 
-        cy = _draw_centered_lines(draw, quote_wrapped, quote_font, cy, w, white_dim, line_gap=int(4 * scale))
-        cy += pad_v // 2
-
-        ab_w = ab[2] - ab[0]
-        draw.text(((w - ab_w) // 2, cy), attr_text, font=attr_font, fill=white_muted)
-
-        y += card_h + int(40 * scale)
-
-    # 8. Tagline
-    tag_pt = max(16, int(36 * scale))
-    tag_font = _find_font(PREFERRED_REG, tag_pt)
-    tag_wrapped = _wrap(draw, profile.get("cta_tagline", ""), tag_font, w - 2 * margin)
-    y = _draw_centered_lines(draw, tag_wrapped, tag_font, y, w, white_dim, line_gap=int(4 * scale))
-    y += int(24 * scale)
-
-    # 9. Download + link in bio
-    dl_pt = max(16, int(36 * scale))
-    dl_font = _find_font(PREFERRED_BOLD, dl_pt)
-    dl_wrapped = _wrap(draw, profile.get("cta_download", ""), dl_font, w - 2 * margin)
-    _draw_centered_lines(draw, dl_wrapped, dl_font, y, w, white, line_gap=int(4 * scale))
-
-    # 10. Bottom accent bar
-    bar_h = max(6, int(8 * scale))
-    draw.rectangle([0, h - bar_h, w, h], fill=accent)
-
+    draw = _top_bar(canvas, profile, slide_idx, total_slides, h)
+    _bottom_bar(draw, w, h, accent_rgb)
     return canvas.convert("RGB")

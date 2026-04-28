@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""AppFactory CLI v2 — Multi-Brand Social Content Engine."""
+"""AppFactory CLI — 6-slide structured storytelling engine."""
 
 import argparse
 import json
-import os
 import random
 import re
 import sys
@@ -19,7 +18,6 @@ def _slugify(text: str) -> str:
 
 
 def _unique_out_dir(app_key: str, slug: str) -> Path:
-    """Return output/app/slug, or output/app/slug_02, _03 … if it already exists."""
     base = Path("output") / app_key / slug
     if not base.exists():
         return base
@@ -46,95 +44,157 @@ def _load_review(app_key: str):
     return None
 
 
-def _process_topic(topic: str, app_key: str, platform: str, provider_name: str, num_slides: int):
+def _process_topic(topic: str, app_key: str, platform: str, provider_name: str,
+                   topic_number: int = None):
     from profiles import APP_PROFILES
-    from llm_handler import generate_copy
+    from llm_handler import generate_carousel
     from image_factory import get_provider
-    from renderer import render_slide, render_cta_slide
+    from topic_manager import mark_used, parse_topic_list
+    from renderer import (render_hook_slide, render_brand_slide,
+                          render_checklist_slide, render_cta_slide)
 
-    profile = APP_PROFILES[app_key]
+    profile  = APP_PROFILES[app_key]
     provider = get_provider(provider_name)
 
-    slug = _slugify(topic)
-    out_dir = _unique_out_dir(app_key, slug)
+    out_dir = _unique_out_dir(app_key, _slugify(topic))
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    total_slides = num_slides + 1  # +1 for the CTA slide
+    total_slides = 6
 
-    # 1. Claude generates copy for content slides
+    # ── Step 1: Gemini generates all copy + image prompt ──────────────────
     print(f"\n[{profile['name']}] Topic: {topic!r}")
-    slides = generate_copy(app_key, topic, num_slides)
-    print(f"  ✓ {len(slides)} content slides from Claude")
+    print("  Generating 6-slide JSON via Gemini…")
+    data         = generate_carousel(app_key, topic)
+    slides       = data["slides"]
+    image_prompt = data.get("image_prompt", topic)
+    caption      = data.get("caption", "")
+    print(f"  ✓ Copy ready")
 
-    # 2. ONE AI background image for the whole carousel
-    image_prompt = (
-        f"{slides[0].get('image_prompt', topic)}, "
-        f"{profile['background_style']}, ultra high quality, cinematic"
+    # ── Step 2: Gemini Imagen generates Slide 1 background ────────────────
+    print(f"  Generating background image via {provider_name.upper()}…")
+    bg_image = provider.generate(
+        f"{image_prompt}, ultra cinematic, 8k, high contrast",
+        platform,
     )
-    print(f"  Generating background via {provider_name.upper()} (1 call for {total_slides} slides)…")
-    base_image = provider.generate(image_prompt, platform)
-    print(f"  ✓ Background ready ({base_image.size[0]}×{base_image.size[1]})")
+    print(f"  ✓ Background ready ({bg_image.size[0]}×{bg_image.size[1]})")
 
-    # 3. Render content slides
-    for i, slide in enumerate(slides):
-        print(f"  Rendering slide {i + 1}/{total_slides}…")
-        rendered = render_slide(base_image, slide, profile, platform, i, total_slides)
-        rendered.save(out_dir / f"slide_{i + 1:02d}.png", "PNG")
-
-    # 4. Render CTA slide (always last)
-    print(f"  Rendering CTA slide {total_slides}/{total_slides}…")
+    # ── Step 3: Render all 6 slides ────────────────────────────────────────
     review = _load_review(app_key)
-    cta = render_cta_slide(base_image, profile, platform, total_slides, total_slides, review)
-    cta.save(out_dir / f"slide_{total_slides:02d}.png", "PNG")
 
-    print(f"  ✓ Carousel saved → {out_dir}/")
+    renders = [
+        # Slide 1 — Hook: AI image + overlay + neon word
+        render_hook_slide(bg_image, slides[0], profile, platform, 0, total_slides),
+
+        # Slide 2 — Brand colour, no bridge
+        render_brand_slide(slides[1], profile, platform, 1, total_slides,
+                           bridge=False),
+
+        # Slide 3 — Brand colour, line exits right edge (swipe nudge)
+        render_brand_slide(slides[2], profile, platform, 2, total_slides,
+                           bridge=True, bridge_side="exit"),
+
+        # Slide 4 — Brand colour, line enters from left edge + clear lane
+        render_brand_slide(slides[3], profile, platform, 3, total_slides,
+                           bridge=True, bridge_side="entry"),
+
+        # Slide 5 — Paper texture checklist
+        render_checklist_slide(slides[4], profile, platform, 4, total_slides),
+
+        # Slide 6 — Phone mockup CTA
+        render_cta_slide(slides[5], profile, platform, 5, total_slides, app_key, review),
+    ]
+
+    for i, img in enumerate(renders, start=1):
+        path = out_dir / f"slide_{i:02d}.png"
+        img.save(path, "PNG")
+        print(f"  Saved slide {i}/6 → {path.name}")
+
+    # ── Step 4: Save caption ───────────────────────────────────────────────
+    if caption:
+        (out_dir / "caption.txt").write_text(caption, encoding="utf-8")
+        print(f"  Saved caption.txt")
+
+    print(f"\n  ✓ Carousel complete → {out_dir}/")
+
+    # Mark topic as used in history (only when auto-picked from master list)
+    if topic_number is not None and profile.get("topic_list"):
+        total = len(parse_topic_list(profile["topic_list"]))
+        mark_used(app_key, topic_number, total)
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="AppFactory CLI v2 — generate branded carousels with AI.",
+        description="AppFactory CLI — 6-slide AI carousel generator.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python main.py --app calm_sos --topic "breathing exercises" --tiktok
-  python main.py --app migraine_cast --topic "migraine triggers" --insta --provider openai
-  python main.py --app calm_sos --batch topics.txt --tiktok --slides 6
+  python main.py --app migraine_cast --topic "Barometric Pressure and Migraines" --tiktok
+  python main.py --app calm_sos --topic "5-minute panic reset" --insta
+  python main.py --app migraine_cast --batch topics.txt --tiktok --provider openai
 """,
     )
 
-    parser.add_argument("--app", required=True, choices=["calm_sos", "migraine_cast"])
-    parser.add_argument("--topic", type=str)
-    parser.add_argument("--batch", metavar="FILE")
-    parser.add_argument("--tiktok", action="store_true", help="1080×1920 — default")
-    parser.add_argument("--insta",  action="store_true", help="1080×1350")
+    parser.add_argument("--app",      required=True, choices=["calm_sos", "migraine_cast"])
+    parser.add_argument("--topic",    type=str)
+    parser.add_argument("--batch",    metavar="FILE")
+    parser.add_argument("--auto",     action="store_true",
+                        help="Auto-pick next unused topic from the app's master list.")
+    parser.add_argument("--history",  action="store_true",
+                        help="Show topic usage history and exit.")
+    parser.add_argument("--tiktok",   action="store_true", help="1080×1920 — default")
+    parser.add_argument("--insta",    action="store_true", help="1080×1350")
     parser.add_argument("--provider", choices=["gemini", "openai"], default="gemini")
-    parser.add_argument("--slides", type=int, default=5, metavar="N",
-                        help="Content slides before CTA (default: 5)")
 
     args = parser.parse_args()
 
-    if not args.topic and not args.batch:
-        parser.error("Provide --topic or --batch.")
+    # --history: show stats and exit
+    if args.history:
+        from profiles import APP_PROFILES
+        from topic_manager import show_history
+        profile = APP_PROFILES[args.app]
+        topic_list = profile.get("topic_list")
+        if not topic_list:
+            sys.exit(f"No topic list configured for {args.app}.")
+        show_history(args.app, topic_list)
+        sys.exit(0)
+
+    if not args.topic and not args.batch and not args.auto:
+        parser.error("Provide --topic, --batch, or --auto.")
     if args.tiktok and args.insta:
         parser.error("Use --tiktok or --insta, not both.")
 
     platform = _platform(args)
     print(f"Platform: {platform.upper()}  |  Provider: {args.provider.upper()}  |  App: {args.app}")
 
-    topics: list = []
+    # Build topic list
+    topics        = []   # list of (topic_text, topic_number_or_None)
+    topic_number  = None
+
+    if args.auto:
+        from profiles import APP_PROFILES
+        from topic_manager import pick_topic
+        profile    = APP_PROFILES[args.app]
+        topic_list = profile.get("topic_list")
+        if not topic_list:
+            sys.exit(f"No topic list configured for {args.app}. Add 'topic_list' to profiles.py.")
+        topic_number, topic_text = pick_topic(args.app, topic_list)
+        print(f"  Auto-selected topic #{topic_number}: {topic_text!r}")
+        topics.append((topic_text, topic_number))
+
     if args.topic:
-        topics.append(args.topic)
+        topics.append((args.topic, None))
+
     if args.batch:
         p = Path(args.batch)
         if not p.exists():
             sys.exit(f"Batch file not found: {args.batch}")
-        topics.extend(ln.strip() for ln in p.read_text().splitlines() if ln.strip())
+        topics.extend((ln.strip(), None) for ln in p.read_text().splitlines() if ln.strip())
 
-    for topic in topics:
+    for topic_text, t_num in topics:
         try:
-            _process_topic(topic, args.app, platform, args.provider, args.slides)
+            _process_topic(topic_text, args.app, platform, args.provider, topic_number=t_num)
         except Exception as exc:
-            print(f"ERROR [{topic!r}]: {exc}", file=sys.stderr)
+            print(f"ERROR [{topic_text!r}]: {exc}", file=sys.stderr)
             if len(topics) == 1:
                 raise
 
