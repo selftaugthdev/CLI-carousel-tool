@@ -179,8 +179,9 @@ def _top_bar(canvas, profile, slide_idx, total_slides, h):
     lsize = int(68 * scale)
     accent = _hex_rgb(profile["accent_color"])
 
-    logo = _load_logo(profile["logo_path"], lsize, accent)
-    canvas.paste(logo, (pad, pad), logo)
+    logo     = _load_logo(profile["logo_path"], lsize, accent)
+    logo_pad = int(20 * scale)   # extra inset — avoids rounded-corner/Live UI clip
+    canvas.paste(logo, (pad + logo_pad, pad + logo_pad), logo)
 
     draw = ImageDraw.Draw(canvas)
     cfont = _find_font(PREFERRED_REG, max(14, int(26 * scale)))
@@ -229,7 +230,7 @@ def _make_paper_bg(w: int, h: int) -> Image.Image:
 def render_hook_slide(bg_image, slide_data, profile, platform, slide_idx, total_slides):
     w, h = PLATFORM_SIZES[platform]
     safe_top, safe_bot, safe_left, safe_right = _safe_zone(w, h)
-    cx       = _text_cx(safe_left, safe_right)
+    cx       = w // 2   # true canvas centre — safe zone cx (515) drifts left
     max_text = safe_right - safe_left
     scale    = h / 1350
 
@@ -421,8 +422,10 @@ def render_checklist_slide(slide_data, profile, platform, slide_idx, total_slide
     # Title starts at y=200 (scaled) to clear TikTok top UI chrome
     start_y   = int(200 * h / 1350)
 
-    # Title in accent colour, centred within safe zone
-    draw.text((cx - title_w//2, start_y), title, font=title_font, fill=(*accent_rgb, 255))
+    # Title in accent colour, centred within safe zone — stroke adds visual weight
+    stroke_w = max(2, int(3 * scale))
+    draw.text((cx - title_w//2, start_y), title, font=title_font, fill=(*accent_rgb, 255),
+              stroke_width=stroke_w, stroke_fill=(*accent_rgb, 255))
 
     # Neon underline (same width as title)
     ul_y = start_y + title_h + int(6*scale)
