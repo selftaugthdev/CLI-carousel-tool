@@ -549,6 +549,18 @@ def render_cta_slide(slide_data, profile, platform, slide_idx, total_slides,
     hb  = draw.textbbox((0, 0), handle_txt, font=bot_font)
     bot_h = lb[3] - lb[1]
     bot_y = h - bar_h - bot_h - int(24*scale)    # flush to canvas bottom, above accent bar
+
+    # MigraineCast only: localisation line sits just above the bottom row
+    if app_key == "migraine_cast":
+        loc_txt  = "Available in English, Dutch, French, German, & Spanish."
+        loc_font = _find_font(PREFERRED_REG, max(12, int(22*scale)))
+        lb2      = draw.textbbox((0, 0), loc_txt, font=loc_font)
+        loc_h    = lb2[3] - lb2[1]
+        loc_y    = bot_y - loc_h - int(10*scale)
+        loc_w    = lb2[2] - lb2[0]
+        draw.text((cx - loc_w//2, loc_y), loc_txt, font=loc_font,
+                  fill=(255, 255, 255, 140) if on_dark else (*headline_rgb, 140))
+
     draw.text((safe_left,                    bot_y), lib_txt,    font=bot_font, fill=NEON_GREEN)
     draw.text((safe_right - (hb[2]-hb[0]),   bot_y), handle_txt, font=bot_font,
               fill=(255,255,255,200) if on_dark else (*accent_rgb, 220))
