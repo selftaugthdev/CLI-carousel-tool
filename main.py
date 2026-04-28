@@ -33,6 +33,24 @@ def _platform(args) -> str:
     return "insta" if args.insta else "tiktok"
 
 
+def _format_caption(caption: str, topic: str, app_name: str) -> str:
+    """Prepend topic title, ensure paragraphs, enforce fixed CTA before hashtags."""
+    paragraphs = [p.strip() for p in caption.strip().split("\n\n") if p.strip()]
+
+    # Pull off the hashtag block (last paragraph starting with #)
+    hashtags = ""
+    if paragraphs and paragraphs[-1].lstrip().startswith("#"):
+        hashtags = paragraphs.pop()
+
+    # Enforce fixed CTA as the last body paragraph
+    paragraphs[-1] = f"{app_name} is free to download. Link in bio."
+
+    parts = [topic] + paragraphs
+    if hashtags:
+        parts.append(hashtags)
+    return "\n\n".join(parts)
+
+
 def _load_review(app_key: str):
     path = Path("assets") / "reviews" / f"{app_key}.json"
     if path.exists():
@@ -111,6 +129,7 @@ def _process_topic(topic: str, app_key: str, platform: str, provider_name: str,
 
     # ── Step 4: Save caption ───────────────────────────────────────────────
     if caption:
+        caption = _format_caption(caption, topic, profile["name"])
         (out_dir / "caption.txt").write_text(caption, encoding="utf-8")
         print(f"  Saved caption.txt")
 
