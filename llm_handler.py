@@ -83,4 +83,12 @@ def generate_carousel(app_key: str, topic: str) -> dict:
         slides.append({})
     data["slides"] = slides[:6]
 
+    # Protocol slide (index 4): last checkpoint always "Use <App Name>"
+    checklist = data["slides"][4].get("checklist", [])
+    if checklist:
+        checklist[-1] = f"Use {profile['name']}"
+    elif checklist == []:
+        checklist = [f"Use {profile['name']}"]
+    data["slides"][4]["checklist"] = checklist
+
     return data

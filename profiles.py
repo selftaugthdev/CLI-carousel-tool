@@ -17,7 +17,7 @@ APP_PROFILES = {
             "cinematic moody twilight sky, deep lavender and indigo storm clouds, "
             "ethereal soft light, dramatic atmosphere, ultra high contrast"
         ),
-        "tiktok_handle": "@calmsos",
+        "tiktok_handle": "@calmsos.app",
         "topic_list": None,   # no list yet — add assets/CalmSOS-Topic_Master_List.md when ready
         "cta_tagline": "Real-time tools built for the exact moment panic starts — not after.",
         "cta_download": "Download Calm SOS free on the App Store. Link in bio.",
