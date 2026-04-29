@@ -23,7 +23,8 @@ TOPIC_DOMAINS = {
 
 _MIGRAINECAST_HOOK_RULES = """\
 HOOK RULES — MigraineCast:
-- Full sentences ONLY. Never a single word as the hook.
+- HARD RULE: Every hook MUST be a full sentence of at least 5 words. Single-word hooks are FORBIDDEN.
+  Before including any hook, count its words. If the count is 1, discard it and write a replacement.
 - Must create tension, curiosity, or instant recognition in the reader
 - No generic health copy, no clinical language
 - Write like someone who lives with migraines, not a brand
@@ -129,16 +130,27 @@ def generate_hooks(app_key: str, topic: str, pillar_num: int) -> list:
         hook_rules=hook_rules,
     )
 
-    response = _get_client().models.generate_content(
-        model="gemini-2.5-flash",
-        contents=prompt,
-        config=genai_types.GenerateContentConfig(
-            response_mime_type="application/json",
-            temperature=0.9,
-        ),
-    )
-    hooks = json.loads(response.text)
-    return hooks[:3]
+    for attempt in range(3):
+        response = _get_client().models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt,
+            config=genai_types.GenerateContentConfig(
+                response_mime_type="application/json",
+                temperature=0.9,
+            ),
+        )
+        hooks = json.loads(response.text)[:3]
+
+        if app_key == "migraine_cast":
+            bad = [h for h in hooks if len(h.get("hook", "").split()) < 2]
+            if not bad:
+                break
+            if attempt < 2:
+                print(f"  Single-word hook detected — retrying (attempt {attempt + 2}/3)…")
+        else:
+            break
+
+    return hooks
 
 
 def generate_carousel(app_key: str, topic: str, pillar_num: int, chosen_hook: str) -> dict:
