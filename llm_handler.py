@@ -68,6 +68,17 @@ Return ONLY a valid JSON array — no markdown fences, no explanation.
 [{{"hook": "...", "formula": "...", "tension": "...", "emotion": "..."}}, ...]
 """
 
+_NEON_WORD_RULE_MIGRAINECAST = (
+    '"neon_word": a short punchy ALL-CAPS phrase of 2-4 words that creates tension or poses a question. '
+    'Examples: "EATING SAFE?", "STILL HAPPENING?", "YOU DID EVERYTHING RIGHT.", "SOUND FAMILIAR?". '
+    'NEVER a single standalone word — single words like BETRAYAL, FIGHT, PRESSURE are forbidden.'
+)
+
+_NEON_WORD_RULE_CALM_SOS = (
+    '"neon_word": 1 ALL-CAPS emotionally loaded word that describes a feeling the reader already knows '
+    '(e.g. CRASH, INVISIBLE, AGAIN). NOT a topic label like ANXIETY or PANIC.'
+)
+
 _CAROUSEL_PROMPT = """\
 Act as a viral TikTok creator for {app_name}.
 Generate a 6-slide carousel JSON.
@@ -90,7 +101,7 @@ CONTENT RULES:
 - No em-dashes (—). Use a period or rewrite the sentence instead.
 
 SLIDE RULES:
-- slide 1 → "neon_word": 1 ALL-CAPS emotionally loaded word (a feeling, NOT a topic label). "hook": the chosen hook text EXACTLY.
+- slide 1 → {neon_word_rule} "hook": the chosen hook text EXACTLY.
 - slides 2-4 → "header": ≤4 words ALL CAPS. "body": ≤20 words, emotional and specific. (slide 4 MUST be 25-30 words for dwell time)
 - slide 5 → "summary_title": ≤3 words ALL CAPS. "checklist": 4-5 action items.
   HARD RULE for slide 5: Before writing the checklist, re-read slides 2-4. Every step must be a direct response to the specific frustration, moment, or experience described there. If the carousel is about cancelling plans, the steps reference reclaiming control over social life. If it is about food triggers, the steps reference food specifically. Generic advice that could appear on any health website is forbidden. Each step should make the reader feel this protocol was written for their exact situation, not copy-pasted from a general checklist.
@@ -169,6 +180,9 @@ def generate_carousel(app_key: str, topic: str, pillar_num: int, chosen_hook: st
         tone=profile["tone"],
         persona_description=profile["persona_description"],
         background_style=pillar["background_style"],
+        neon_word_rule=(_NEON_WORD_RULE_MIGRAINECAST
+                        if app_key == "migraine_cast"
+                        else _NEON_WORD_RULE_CALM_SOS),
     ).replace("<<CHOSEN_HOOK>>", chosen_hook).replace(
         "use the chosen hook text exactly here", chosen_hook)
 
@@ -184,11 +198,21 @@ def generate_carousel(app_key: str, topic: str, pillar_num: int, chosen_hook: st
         )
         try:
             data = json.loads(response.text)
-            break
         except json.JSONDecodeError as e:
             last_err = e
             if attempt < 2:
                 print(f"  Invalid JSON from Gemini — retrying (attempt {attempt + 2}/3)…")
+            continue
+
+        # MigraineCast guard: neon_word must be a phrase, not a single word
+        if app_key == "migraine_cast":
+            neon = data.get("slides", [{}])[0].get("neon_word", "")
+            if len(neon.split()) < 2 and attempt < 2:
+                print(f"  Single-word neon_word '{neon}' — retrying (attempt {attempt + 2}/3)…")
+                last_err = ValueError(f"neon_word is a single word: {neon!r}")
+                continue
+
+        break
     else:
         raise last_err
 
