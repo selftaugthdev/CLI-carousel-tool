@@ -127,11 +127,16 @@ Return ONLY valid JSON — no markdown fences, no explanation.
 """
 
 
-def generate_hooks(app_key: str, topic: str, pillar_num: int) -> list:
+def generate_hooks(app_key: str, topic: str, pillar_num: int, rejected: list = None) -> list:
     """Phase 1 — return 3 hook options as a list of dicts."""
     profile = APP_PROFILES[app_key]
     pillar  = PILLARS[app_key][pillar_num]
     hook_rules = _MIGRAINECAST_HOOK_RULES if app_key == "migraine_cast" else _CALM_SOS_HOOK_RULES
+
+    exclusions = ""
+    if rejected:
+        lines = "\n".join(f"- {h}" for h in rejected)
+        exclusions = f"\n\nNEVER use or resemble any of these previously rejected hooks:\n{lines}"
 
     prompt = _HOOKS_PROMPT.format(
         app_name=profile["name"],
@@ -139,7 +144,7 @@ def generate_hooks(app_key: str, topic: str, pillar_num: int) -> list:
         pillar_name=pillar["name"],
         audience=pillar["audience"],
         content_guidance=pillar["content_guidance"],
-        hook_rules=hook_rules,
+        hook_rules=hook_rules + exclusions,
     )
 
     for attempt in range(3):

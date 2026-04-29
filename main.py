@@ -73,7 +73,10 @@ def _prompt_pillar(app_key: str) -> int:
         print("  Please enter 1, 2, or 3.")
 
 
+_NEW_HOOKS = "<<NEW_HOOKS>>"
+
 def _prompt_hook(hooks: list) -> str:
+    """Returns chosen hook text, or _NEW_HOOKS sentinel if user wants fresh options."""
     print()
     for i, h in enumerate(hooks, 1):
         print(f"  {i}.  {h['hook']}")
@@ -82,10 +85,12 @@ def _prompt_hook(hooks: list) -> str:
         print(f"      Emotion : {h['emotion']}")
         print()
     while True:
-        choice = input("  Which hook — 1, 2, or 3? ").strip()
+        choice = input('  Which hook — 1, 2, or 3? (or type "new hooks") ').strip().lower()
         if choice in ("1", "2", "3"):
             return hooks[int(choice) - 1]["hook"]
-        print("  Please enter 1, 2, or 3.")
+        if choice == "new hooks":
+            return _NEW_HOOKS
+        print('  Please enter 1, 2, or 3, or "new hooks".')
 
 
 def _process_topic(topic: str, app_key: str, platform: str, provider_name: str,
@@ -116,9 +121,17 @@ def _process_topic(topic: str, app_key: str, platform: str, provider_name: str,
     ab_hooks = None   # set to list of 3 hook strings if A/B mode is chosen
 
     if chosen_hook is None:
-        print("  Generating hooks…")
-        raw_hooks   = generate_hooks(app_key, topic, pillar_num)
-        chosen_hook = _prompt_hook(raw_hooks)
+        rejected  = []
+        raw_hooks = None
+        while True:
+            print("  Generating hooks…" if not rejected else f"  Generating new hooks ({len(rejected)} rejected)…")
+            raw_hooks   = generate_hooks(app_key, topic, pillar_num, rejected=rejected)
+            result      = _prompt_hook(raw_hooks)
+            if result == _NEW_HOOKS:
+                rejected.extend(h["hook"] for h in raw_hooks)
+                continue
+            chosen_hook = result
+            break
         ans = input("  Generate all 3 versions for A/B testing? (y/n) ").strip().lower()
         if ans == "y":
             ab_hooks = [h["hook"] for h in raw_hooks]
