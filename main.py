@@ -108,23 +108,27 @@ def _process_topic(topic: str, app_key: str, platform: str, provider_name: str,
     print(f"\n[{base_profile['name']}] Pillar {pillar_num}: {pillar['name']}")
     print(f"  Topic: {topic!r}")
 
-    # Merge pillar colours into a working profile copy
     profile = {**base_profile,
                "accent_color":      pillar["accent_color"],
                "slide_color_cycle": pillar["slide_color_cycle"]}
 
     # ── Step 2: Hook selection ─────────────────────────────────────────────
+    ab_hooks = None   # set to list of 3 hook strings if A/B mode is chosen
+
     if chosen_hook is None:
         print("  Generating hooks…")
-        hooks = generate_hooks(app_key, topic, pillar_num)
-        chosen_hook = _prompt_hook(hooks)
+        raw_hooks   = generate_hooks(app_key, topic, pillar_num)
+        chosen_hook = _prompt_hook(raw_hooks)
+        ans = input("  Generate all 3 versions for A/B testing? (y/n) ").strip().lower()
+        if ans == "y":
+            ab_hooks = [h["hook"] for h in raw_hooks]
 
     print(f"  Hook: {chosen_hook!r}")
 
     out_dir = _unique_out_dir(app_key, _slugify(topic))
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # ── Step 3: Generate carousel copy ────────────────────────────────────
+    # ── Step 3: Generate carousel copy (once, using chosen hook) ──────────
     print("  Generating 6-slide JSON via Gemini…")
     data         = generate_carousel(app_key, topic, pillar_num, chosen_hook)
     slides       = data["slides"]
@@ -132,7 +136,7 @@ def _process_topic(topic: str, app_key: str, platform: str, provider_name: str,
     caption      = data.get("caption", "")
     print("  ✓ Copy ready")
 
-    # ── Step 4: Generate background image ─────────────────────────────────
+    # ── Step 4: Generate background image (once, shared across versions) ──
     print(f"  Generating background image via {provider_name.upper()}…")
     bg_image = provider.generate(
         f"{image_prompt}, ultra cinematic, 8k, high contrast",
@@ -140,12 +144,13 @@ def _process_topic(topic: str, app_key: str, platform: str, provider_name: str,
     )
     print(f"  ✓ Background ready ({bg_image.size[0]}×{bg_image.size[1]})")
 
-    # ── Step 5: Render all 6 slides ───────────────────────────────────────
+    # ── Step 5: Render ────────────────────────────────────────────────────
     total_slides = 6
     review       = _load_review(app_key)
+    formatted_caption = _format_caption(caption, topic, base_profile["caption_cta"]) if caption else ""
 
-    renders = [
-        render_hook_slide(bg_image, slides[0], profile, platform, 0, total_slides),
+    # Slides 2-6 are identical across all versions — render once
+    shared = [
         render_brand_slide(slides[1], profile, platform, 1, total_slides, bridge=False),
         render_brand_slide(slides[2], profile, platform, 2, total_slides,
                            bridge=True, bridge_side="exit"),
@@ -155,18 +160,24 @@ def _process_topic(topic: str, app_key: str, platform: str, provider_name: str,
         render_cta_slide(slides[5], profile, platform, 5, total_slides, app_key, review),
     ]
 
-    for i, img in enumerate(renders, start=1):
-        path = out_dir / f"slide_{i:02d}.png"
-        img.save(path, "PNG")
-        print(f"  Saved slide {i}/6 → {path.name}")
+    def _save_version(folder: Path, hook: str):
+        folder.mkdir(parents=True, exist_ok=True)
+        slides[0]["hook"] = hook
+        slide_1 = render_hook_slide(bg_image, slides[0], profile, platform, 0, total_slides)
+        slide_1.save(folder / "slide_01.png")
+        for i, img in enumerate(shared, start=2):
+            img.save(folder / f"slide_{i:02d}.png")
+        if formatted_caption:
+            (folder / "caption.txt").write_text(formatted_caption, encoding="utf-8")
 
-    # ── Step 6: Save caption ──────────────────────────────────────────────
-    if caption:
-        caption = _format_caption(caption, topic, base_profile["caption_cta"])
-        (out_dir / "caption.txt").write_text(caption, encoding="utf-8")
-        print("  Saved caption.txt")
-
-    print(f"\n  ✓ Carousel complete → {out_dir}/")
+    if ab_hooks:
+        for label, hook in zip(["A", "B", "C"], ab_hooks):
+            _save_version(out_dir / f"Version_{label}", hook)
+            print(f"  Version {label} saved  ({hook[:60]}…)" if len(hook) > 60 else f"  Version {label} saved  ({hook})")
+        print(f"\n  ✓ A/B test complete → {out_dir}/")
+    else:
+        _save_version(out_dir, chosen_hook)
+        print(f"\n  ✓ Carousel complete → {out_dir}/")
 
     # Track history
     if topic_number is not None and base_profile.get("topic_list"):
