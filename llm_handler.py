@@ -103,7 +103,7 @@ CONTENT RULES:
 SLIDE RULES:
 - slide 1 → {neon_word_rule} "hook": the chosen hook text EXACTLY.
 - slides 2-4 → "header": ≤4 words ALL CAPS. "body": ≤20 words, emotional and specific. (slide 4 MUST be 25-30 words for dwell time)
-- slide 5 → "summary_title": ≤3 words ALL CAPS. "checklist": 4-5 action items.
+- slide 5 → "summary_title": ≤3 words ALL CAPS. "checklist": exactly 4 items, each item ≤8 words — punchy action phrases, no full sentences, no punctuation at the end.
   HARD RULE for slide 5: Before writing the checklist, re-read slides 2-4. Every step must be a direct response to the specific frustration, moment, or experience described there. If the carousel is about cancelling plans, the steps reference reclaiming control over social life. If it is about food triggers, the steps reference food specifically. Generic advice that could appear on any health website is forbidden. Each step should make the reader feel this protocol was written for their exact situation, not copy-pasted from a general checklist.
 - slide 6 → "cta": ≤20 words. Flows naturally from the carousel — the app earns its place, never forced.
 - "image_prompt": {background_style}. Ultra cinematic, 8k, high contrast.

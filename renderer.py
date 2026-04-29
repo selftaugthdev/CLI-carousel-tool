@@ -160,6 +160,40 @@ def _draw_stars(draw, cx, cy, star_r, n, gap, color):
         draw.polygon(pts, fill=color)
 
 
+def _fit_checklist(draw, items, max_text, check_size, scale, available_h, row_gap):
+    """Return (font, wrapped_items) that fit within available_h.
+    Reduces font size first, then trims items (always keeping the last one),
+    never going below 3 items."""
+    item_text_w = max_text - check_size - int(20 * scale)
+    max_pt = max(20, int(44 * scale))
+    min_pt = max(16, int(28 * scale))
+
+    for n in range(len(items), 2, -1):
+        subset = (items[:n - 1] + [items[-1]]) if n < len(items) else list(items)
+        for pt in range(max_pt, min_pt - 1, -2):
+            font = _find_font(PREFERRED_REG, pt)
+            wrapped = []
+            for text in subset:
+                w = _wrap(draw, text, font, item_text_w)
+                ib = draw.multiline_textbbox((0, 0), w, font=font)
+                row_h = max(check_size, ib[3] - ib[1]) + int(8 * scale)
+                wrapped.append((w, row_h))
+            total_h = sum(r for _, r in wrapped) + row_gap * max(0, len(wrapped) - 1)
+            if total_h <= available_h:
+                return font, wrapped
+
+    # Absolute fallback: 3 items at minimum font
+    font = _find_font(PREFERRED_REG, min_pt)
+    subset = items[:2] + [items[-1]]
+    wrapped = []
+    for text in subset:
+        w = _wrap(draw, text, font, item_text_w)
+        ib = draw.multiline_textbbox((0, 0), w, font=font)
+        row_h = max(check_size, ib[3] - ib[1]) + int(8 * scale)
+        wrapped.append((w, row_h))
+    return font, wrapped
+
+
 def _draw_checkmark(draw, x, y, size, color):
     lw = max(2, size // 7)
     draw.rounded_rectangle([x, y, x+size, y+size], radius=size//5, outline=color, width=lw)
@@ -408,23 +442,10 @@ def render_checklist_slide(slide_data, profile, platform, slide_idx, total_slide
     title_h = tb[3]-tb[1]
     title_w = min(tb[2]-tb[0], max_text)   # cap displayed width to safe zone
 
-    check_size  = max(26, int(46 * scale))
-    item_text_w = max_text - check_size - int(20*scale)   # wrap width for item text
-    row_gap     = int(20 * scale)
-
-    # Pre-measure wrapped item heights (items may be multi-line)
-    wrapped_items = []
-    for item_text in items:
-        wrapped = _wrap(draw, item_text, item_font, item_text_w)
-        ib = draw.multiline_textbbox((0, 0), wrapped, font=item_font)
-        row_h = max(check_size, ib[3]-ib[1]) + int(8*scale)
-        wrapped_items.append((wrapped, row_h))
-
-    items_h = sum(r for _, r in wrapped_items) + row_gap * max(0, len(wrapped_items)-1)
-
-    gap       = int(40 * scale)
-    # Title starts at y=200 (scaled) to clear TikTok top UI chrome
-    start_y   = int(200 * h / 1350)
+    check_size = max(26, int(46 * scale))
+    row_gap    = int(20 * scale)
+    gap        = int(40 * scale)
+    start_y    = int(200 * h / 1350)
 
     # Title in accent colour, centred within safe zone — stroke adds visual weight
     stroke_w = max(2, int(3 * scale))
@@ -436,13 +457,15 @@ def render_checklist_slide(slide_data, profile, platform, slide_idx, total_slide
     draw.line([(cx - title_w//2, ul_y), (cx + title_w//2, ul_y)],
               fill=NEON_GREEN, width=max(3, int(4*scale)))
 
-    # Checklist — left-aligned inside safe zone, items wrapped to 730px
-    item_x = safe_left
-    item_y = ul_y + int(10*scale) + gap
+    # Auto-fit checklist: scale font / trim items until everything sits above safe_bot
+    item_y      = ul_y + int(10*scale) + gap
+    available_h = safe_bot - item_y
+    item_font, wrapped_items = _fit_checklist(
+        draw, items, max_text, check_size, scale, available_h, row_gap)
 
+    item_x = safe_left
     for wrapped, row_h in wrapped_items:
-        cy = item_y + (check_size // 2) - check_size // 2
-        _draw_checkmark(draw, item_x, cy, check_size, (*accent_rgb, 255))
+        _draw_checkmark(draw, item_x, item_y, check_size, (*accent_rgb, 255))
         tx = item_x + check_size + int(20*scale)
         draw.multiline_text((tx, item_y), wrapped, font=item_font, fill=dark_text,
                             spacing=int(6*scale))
