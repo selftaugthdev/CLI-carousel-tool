@@ -415,18 +415,19 @@ def render_checklist_slide(slide_data, profile, platform, slide_idx, total_slide
     max_text = safe_right - safe_left
     scale    = h / 1350
 
-    paper_path = "assets/paper_texture.png"
-    if os.path.exists(paper_path):
-        try:
-            canvas = Image.open(paper_path).convert("RGBA").resize((w, h), Image.LANCZOS)
-        except Exception:
-            canvas = _make_paper_bg(w, h).convert("RGBA")
-    else:
-        canvas = _make_paper_bg(w, h).convert("RGBA")
+    # Background: use pillar's last slide color for visual continuity (not paper)
+    cycle  = profile.get("slide_color_cycle") or SLIDE_COLOR_CYCLES.get(
+        next((k for k, v in __import__("profiles").APP_PROFILES.items()
+              if v["name"] == profile["name"]), "migraine_cast"),
+        SLIDE_COLOR_CYCLES["migraine_cast"]
+    )
+    bg_hex    = cycle[2]["bg"]
+    body_hex  = cycle[2]["body"]
+    canvas    = Image.new("RGBA", (w, h), (*_hex_rgb(bg_hex), 255))
 
     draw       = ImageDraw.Draw(canvas)
     accent_rgb = _hex_rgb(profile["accent_color"])
-    dark_text  = (26, 26, 26, 255)   # #1A1A1A — high-contrast on paper
+    dark_text  = (*_hex_rgb(body_hex), 255)
 
     # Always "THE PROTOCOL" — the save magnet
     title = "THE PROTOCOL"

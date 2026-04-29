@@ -68,6 +68,19 @@ Return ONLY a valid JSON array — no markdown fences, no explanation.
 [{{"hook": "...", "formula": "...", "tension": "...", "emotion": "..."}}, ...]
 """
 
+_CTA_RULE_MIGRAINECAST = (
+    "The CTA must reference what the carousel was specifically about and position MigraineCast "
+    "as the predictive tool that gives control back. Lead with the reader's need, not the app's features. "
+    "Be direct and concrete."
+)
+
+_CTA_RULE_CALM_SOS = (
+    "The CTA must be direct and urgent — reference the specific physical moment or situation described "
+    "in this carousel, then position Calm SOS as the immediate tool for that exact moment. "
+    "Avoid soft language like 'comfort', 'gentle', 'support', 'guidance'. "
+    "Example tone: 'When heat starts the spiral, Calm SOS helps you stop it.'"
+)
+
 _NEON_WORD_RULE_MIGRAINECAST = (
     '"neon_word": a short punchy ALL-CAPS phrase of 2-4 words that creates tension or poses a question. '
     'Examples: "EATING SAFE?", "STILL HAPPENING?", "YOU DID EVERYTHING RIGHT.", "SOUND FAMILIAR?". '
@@ -105,7 +118,7 @@ SLIDE RULES:
 - slides 2-4 → "header": ≤4 words ALL CAPS. "body": ≤20 words, emotional and specific. (slide 4 MUST be 25-30 words for dwell time)
 - slide 5 → "summary_title": ≤3 words ALL CAPS. "checklist": exactly 4 items, each item ≤8 words — punchy action phrases, no full sentences, no punctuation at the end.
   HARD RULE for slide 5: Before writing the checklist, re-read slides 2-4. Every step must be a direct response to the specific frustration, moment, or experience described there. If the carousel is about cancelling plans, the steps reference reclaiming control over social life. If it is about food triggers, the steps reference food specifically. Generic advice that could appear on any health website is forbidden. Each step should make the reader feel this protocol was written for their exact situation, not copy-pasted from a general checklist.
-- slide 6 → "cta": ≤20 words. Flows naturally from the carousel — the app earns its place, never forced.
+- slide 6 → "cta": ≤20 words. {cta_rule}
 - "image_prompt": {background_style}. Ultra cinematic, 8k, high contrast.
 - "caption": 120-150 words, SEO-optimised, ends with 5 relevant hashtags on their own line.
   Caption rules: (1) First line = hook sentence for TikTok search indexing. (2) Explain the biological or scientific WHY. (3) Link the problem to a specific feature or use case in {app_name}. (4) Always name "{app_name}" — never "the app" or a community nickname. (5) No generic therapeutic phrases. (6) Separate paragraphs with \\n\\n — not one block. Hashtags on their own paragraph at the end. (7) No em-dashes (—).
@@ -188,6 +201,9 @@ def generate_carousel(app_key: str, topic: str, pillar_num: int, chosen_hook: st
         neon_word_rule=(_NEON_WORD_RULE_MIGRAINECAST
                         if app_key == "migraine_cast"
                         else _NEON_WORD_RULE_CALM_SOS),
+        cta_rule=(_CTA_RULE_MIGRAINECAST
+                  if app_key == "migraine_cast"
+                  else _CTA_RULE_CALM_SOS),
     ).replace("<<CHOSEN_HOOK>>", chosen_hook).replace(
         "use the chosen hook text exactly here", chosen_hook)
 
