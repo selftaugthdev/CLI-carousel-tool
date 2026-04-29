@@ -77,7 +77,7 @@ Topic: {topic}
 Pillar: {pillar_name} — {content_guidance}
 Audience: {audience}
 Tone: {tone} — {persona_description}
-Chosen hook — use this EXACTLY as the "hook" field on slide 1: "{chosen_hook}"
+Chosen hook — use this EXACTLY as the "hook" field on slide 1: "<<CHOSEN_HOOK>>"
 
 CONTENT RULES:
 - Write like someone who lives with the condition, never like a health brand
@@ -104,7 +104,7 @@ Return ONLY valid JSON — no markdown fences, no explanation.
 {{
   "image_prompt": "...",
   "slides": [
-    {{"neon_word": "WORD", "hook": "{chosen_hook}"}},
+    {{"neon_word": "WORD", "hook": "use the chosen hook text exactly here"}},
     {{"header": "HEADER", "body": "..."}},
     {{"header": "HEADER", "body": "..."}},
     {{"header": "HEADER", "body": "25-30 word body..."}},
@@ -168,20 +168,29 @@ def generate_carousel(app_key: str, topic: str, pillar_num: int, chosen_hook: st
         audience=pillar["audience"],
         tone=profile["tone"],
         persona_description=profile["persona_description"],
-        chosen_hook=chosen_hook,
         background_style=pillar["background_style"],
-    )
+    ).replace("<<CHOSEN_HOOK>>", chosen_hook).replace(
+        "use the chosen hook text exactly here", chosen_hook)
 
-    response = _get_client().models.generate_content(
-        model="gemini-2.5-flash",
-        contents=prompt,
-        config=genai_types.GenerateContentConfig(
-            response_mime_type="application/json",
-            temperature=0.85,
-        ),
-    )
-
-    data = json.loads(response.text)
+    last_err = None
+    for attempt in range(3):
+        response = _get_client().models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt,
+            config=genai_types.GenerateContentConfig(
+                response_mime_type="application/json",
+                temperature=0.85,
+            ),
+        )
+        try:
+            data = json.loads(response.text)
+            break
+        except json.JSONDecodeError as e:
+            last_err = e
+            if attempt < 2:
+                print(f"  Invalid JSON from Gemini — retrying (attempt {attempt + 2}/3)…")
+    else:
+        raise last_err
 
     slides = data.get("slides", [])
     while len(slides) < 6:
