@@ -91,6 +91,19 @@ def mark_used(app_key: str, topic_number: int, total: int):
     print(f"  History updated — topic #{topic_number} done. {remaining}/{total} remaining.")
 
 
+def get_next_pillar(app_key: str) -> int:
+    """Return next pillar (1/2/3) cycling for grid rhythm. Never repeats consecutively."""
+    history  = _load_history()
+    last     = history.get(f"{app_key}_pillar", 0)
+    return (last % 3) + 1
+
+
+def mark_pillar(app_key: str, pillar_num: int):
+    history = _load_history()
+    history[f"{app_key}_pillar"] = pillar_num
+    _save_history(history)
+
+
 def show_history(app_key: str, topic_list_path: str):
     """Print a summary of used vs remaining topics."""
     topics  = parse_topic_list(topic_list_path)

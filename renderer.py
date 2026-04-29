@@ -298,11 +298,15 @@ def render_brand_slide(slide_data, profile, platform, slide_idx, total_slides,
     scale    = h / 1350
 
     # Colour cycle: slide_idx 1→0, 2→1, 3→2
-    app_key    = next(k for k,v in __import__("profiles").APP_PROFILES.items()
-                      if v["name"] == profile["name"])
-    color_idx  = max(0, slide_idx - 1)
-    cycle      = SLIDE_COLOR_CYCLES.get(app_key, SLIDE_COLOR_CYCLES["migraine_cast"])
-    colors     = cycle[color_idx % len(cycle)]
+    # Prefer pillar-specific cycle injected into profile; fall back to app default
+    color_idx = max(0, slide_idx - 1)
+    if "slide_color_cycle" in profile:
+        cycle = profile["slide_color_cycle"]
+    else:
+        app_key = next(k for k, v in __import__("profiles").APP_PROFILES.items()
+                       if v["name"] == profile["name"])
+        cycle = SLIDE_COLOR_CYCLES.get(app_key, SLIDE_COLOR_CYCLES["migraine_cast"])
+    colors = cycle[color_idx % len(cycle)]
 
     bg_rgb  = _hex_rgb(colors["bg"])
     hl_rgb  = _hex_rgb(colors["hl"])
